@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js"></script>
 <style>
   :root{
     --bg: #10151c;
@@ -131,6 +132,23 @@
   .config-note{ font-size:12px; color: var(--muted); line-height:1.6; margin-top:4px; }
   .config-note a{ color: var(--brass-dim); }
   hr.sep{ border:none; border-top:1px solid var(--line); margin: 20px 0; }
+
+  /* ---------- Password strength ---------- */
+  .strength-wrap{ margin: -8px 0 16px; }
+  .strength-bars{ display:flex; gap:4px; margin-bottom:5px; }
+  .strength-bars span{ height:4px; flex:1; background: var(--line); border-radius:2px; transition: background 0.2s; }
+  .strength-label{ font-size:11px; color: var(--muted); letter-spacing:0.02em; }
+  .strength-wrap.weak .strength-label{ color: var(--danger); }
+  .strength-wrap.ok .strength-label{ color: var(--brass); }
+  .strength-wrap.strong .strength-label{ color: var(--ok); }
+
+  /* ---------- Auto-lock select ---------- */
+  select#autoLockSelect{
+    background: var(--bg); border:1px solid var(--line); color: var(--muted);
+    font-family:'Inter',sans-serif; font-size:12px; padding: 5px 8px; border-radius: var(--radius);
+    cursor:pointer;
+  }
+  #idleOverlay .modal{ text-align:center; max-width:340px; }
 </style>
 </head>
 <body>
@@ -189,9 +207,16 @@
     </div>
     <div class="header-actions">
       <span class="status-pill" id="driveStatus"><span class="status-dot" id="driveDot"></span><span id="driveStatusText">ไม่ได้เชื่อม Google Drive</span></span>
+      <select id="autoLockSelect" title="ล็อกอัตโนมัติเมื่อไม่ใช้งาน">
+        <option value="60000">ล็อกใน 1 นาที</option>
+        <option value="300000" selected>ล็อกใน 5 นาที</option>
+        <option value="900000">ล็อกใน 15 นาที</option>
+        <option value="0">ไม่ล็อกอัตโนมัติ</option>
+      </select>
       <button class="btn-ghost btn-small" id="driveBtn">เชื่อม Google Drive</button>
       <button class="btn-ghost btn-small" id="exportBtn">Export</button>
       <button class="btn-ghost btn-small" id="importBtn">Import</button>
+      <button class="btn-ghost btn-small" id="importDriveBtn">Import จาก Drive</button>
       <button class="btn-ghost btn-small" id="lockBtn">Lock</button>
     </div>
   </header>
@@ -218,6 +243,10 @@
     <div class="field-with-btn">
       <input type="password" id="entryPass" placeholder="รหัสผ่าน">
       <button class="inline-btn" id="togglePassBtn">SHOW</button>
+    </div>
+    <div class="strength-wrap" id="strengthWrap">
+      <div class="strength-bars"><span></span><span></span><span></span><span></span></div>
+      <div class="strength-label" id="strengthLabel">&nbsp;</div>
     </div>
     <button class="btn-ghost btn-small" id="genPassBtn" style="margin-bottom:16px;">สุ่มรหัสผ่าน</button>
     <label>บันทึกเพิ่มเติม</label>
@@ -270,6 +299,42 @@
   </div>
 </div>
 
+<!-- Picker API key config modal -->
+<div class="overlay" id="pickerConfigOverlay">
+  <div class="modal">
+    <h2>เชื่อมต่อ Google Drive Picker</h2>
+    <p class="config-note" style="margin-bottom:16px;">
+      การเลือกไฟล์จาก Google Drive โดยตรงต้องใช้ Google API Key เพิ่มเติม (คนละตัวกับ OAuth Client ID) สร้างได้ฟรีในโปรเจกต์เดียวกัน
+    </p>
+    <label>Google API Key</label>
+    <input type="text" id="apiKeyInput" placeholder="AIzaSy...">
+    <div class="error-msg" id="pickerConfigError"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="cancelPickerConfig">ยกเลิก</button>
+      <button class="btn-primary" id="savePickerConfig">บันทึกและเลือกไฟล์</button>
+    </div>
+    <hr class="sep">
+    <p class="config-note">
+      วิธีสร้าง: ไปที่ <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console → Credentials</a> → Create Credentials → API key →
+      กด "Restrict key" → จำกัดให้ใช้ได้เฉพาะ "Google Picker API" และเฉพาะ HTTP referrer ที่เป็น URL ของแอปนี้ →
+      อย่าลืมเปิดใช้งาน "Google Picker API" ในเมนู Library ด้วย
+    </p>
+  </div>
+</div>
+
+<!-- CSV import preview modal -->
+<div class="overlay" id="csvPreviewOverlay">
+  <div class="modal" style="max-width:640px;">
+    <h2>ตรวจสอบก่อนนำเข้า</h2>
+    <p class="config-note" id="csvPreviewSummary" style="margin-bottom:14px;"></p>
+    <div id="csvPreviewTable" style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:var(--radius); margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="cancelCsvImport">ยกเลิก</button>
+      <button class="btn-primary" id="confirmCsvImport">นำเข้า</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -277,11 +342,12 @@
    CONFIG — fill in your own Google OAuth Client ID, or leave
    blank and set it via the in-app "เชื่อม Google Drive" dialog.
    ============================================================ */
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
 const VAULT_FILENAME = 'vault.enc.json';
 const LS_SALT = 'vault_salt';
 const LS_BLOB = 'vault_blob';
 const LS_CLIENT_ID = 'vault_gdrive_client_id';
+const LS_API_KEY = 'vault_gdrive_api_key';
 const LS_DRIVE_FILE_ID = 'vault_gdrive_file_id';
 
 let vaultKey = null;      // CryptoKey, only in memory
@@ -328,8 +394,9 @@ function loadSalt(){ return localStorage.getItem(LS_SALT); }
 
 async function persist(){
   const blob = await encryptData(vaultKey, vaultData);
-  saveLocalBlob(blob);
-  if(accessToken){ await uploadToDrive(blob); }
+  const record = { ...blob, modifiedAt: Date.now() };
+  saveLocalBlob(record);
+  if(accessToken){ await uploadToDrive(record); }
 }
 
 /* ---------------- UI: toast ---------------- */
@@ -413,13 +480,47 @@ function enterApp(){
   document.getElementById('appScreen').style.display = 'block';
   renderList();
   restoreDriveConnection();
+  resetIdleTimer();
 }
 
-document.getElementById('lockBtn').addEventListener('click', () => {
+document.getElementById('lockBtn').addEventListener('click', lockNow);
+
+function lockNow(){
   vaultKey = null;
   vaultData = [];
   accessToken = null;
   location.reload();
+}
+
+/* ---------------- Auto-lock on inactivity ---------------- */
+const LS_AUTOLOCK = 'vault_autolock_ms';
+let idleTimer = null;
+
+function getAutoLockMs(){
+  const saved = localStorage.getItem(LS_AUTOLOCK);
+  return saved !== null ? parseInt(saved) : 300000; // default 5 min
+}
+
+function resetIdleTimer(){
+  if(idleTimer) clearTimeout(idleTimer);
+  const ms = getAutoLockMs();
+  if(ms > 0){
+    idleTimer = setTimeout(() => {
+      toast('ล็อกอัตโนมัติเนื่องจากไม่มีการใช้งาน');
+      setTimeout(lockNow, 600);
+    }, ms);
+  }
+}
+
+['mousemove','mousedown','keydown','scroll','touchstart'].forEach(evt => {
+  document.addEventListener(evt, () => { if(vaultKey) resetIdleTimer(); }, { passive:true });
+});
+
+const autoLockSelect = document.getElementById('autoLockSelect');
+autoLockSelect.value = String(getAutoLockMs());
+autoLockSelect.addEventListener('change', () => {
+  localStorage.setItem(LS_AUTOLOCK, autoLockSelect.value);
+  resetIdleTimer();
 });
 
 /* ---------------- Entry list rendering ---------------- */
@@ -470,6 +571,7 @@ function openEntryForm(idx){
   document.getElementById('entryPass').type = 'password';
   document.getElementById('togglePassBtn').textContent = 'SHOW';
   document.getElementById('deleteEntryBtn').style.display = idx === null ? 'none' : 'block';
+  updateStrengthUI(e.pass);
   entryOverlay.classList.add('open');
 }
 
@@ -480,6 +582,36 @@ document.getElementById('togglePassBtn').addEventListener('click', () => {
   else{ inp.type = 'password'; btn.textContent = 'SHOW'; }
 });
 
+/* ---------------- Password strength ---------------- */
+function scorePassword(pw){
+  if(!pw) return 0;
+  let variety = 0;
+  if(/[a-z]/.test(pw)) variety++;
+  if(/[A-Z]/.test(pw)) variety++;
+  if(/[0-9]/.test(pw)) variety++;
+  if(/[^a-zA-Z0-9]/.test(pw)) variety++;
+  let lengthScore = pw.length >= 16 ? 3 : pw.length >= 12 ? 2 : pw.length >= 8 ? 1 : 0;
+  let score = Math.min(4, Math.round((variety + lengthScore) / 2));
+  if(pw.length < 8) score = Math.min(score, 1);
+  return score; // 0-4
+}
+
+function updateStrengthUI(pw){
+  const wrap = document.getElementById('strengthWrap');
+  const label = document.getElementById('strengthLabel');
+  const bars = wrap.querySelectorAll('.strength-bars span');
+  const score = scorePassword(pw);
+  wrap.classList.remove('weak','ok','strong');
+  bars.forEach((b, i) => {
+    b.style.background = i < score ? (score <= 1 ? 'var(--danger)' : score <= 2 ? 'var(--brass)' : 'var(--ok)') : 'var(--line)';
+  });
+  if(!pw){ label.innerHTML = '&nbsp;'; return; }
+  if(score <= 1){ wrap.classList.add('weak'); label.textContent = 'อ่อน — เดาง่าย ควรยาวและหลากหลายตัวอักษรกว่านี้'; }
+  else if(score <= 2){ wrap.classList.add('ok'); label.textContent = 'พอใช้ได้ — เพิ่มความยาวหรือสัญลักษณ์จะดีขึ้น'; }
+  else{ wrap.classList.add('strong'); label.textContent = 'แข็งแรง'; }
+}
+document.getElementById('entryPass').addEventListener('input', e => updateStrengthUI(e.target.value));
+
 document.getElementById('genPassBtn').addEventListener('click', () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*';
   let pw = '';
@@ -488,6 +620,7 @@ document.getElementById('genPassBtn').addEventListener('click', () => {
   document.getElementById('entryPass').value = pw;
   document.getElementById('entryPass').type = 'text';
   document.getElementById('togglePassBtn').textContent = 'HIDE';
+  updateStrengthUI(pw);
 });
 
 document.getElementById('saveEntryBtn').addEventListener('click', async () => {
@@ -586,7 +719,177 @@ document.getElementById('importBtn').addEventListener('click', () => {
   inp.click();
 });
 
-/* ---------------- Google Drive integration ---------------- */
+/* ---------------- Import CSV from Google Drive (Picker) ---------------- */
+const pickerConfigOverlay = document.getElementById('pickerConfigOverlay');
+let pickerLoaded = false;
+let pendingCsvRows = null; // rows staged for the preview/confirm modal
+
+document.getElementById('importDriveBtn').addEventListener('click', () => {
+  const clientId = localStorage.getItem(LS_CLIENT_ID);
+  if(!clientId){ toast('กรุณาเชื่อมต่อ Google Drive ก่อน (ปุ่ม "เชื่อม Google Drive")'); return; }
+  const apiKey = localStorage.getItem(LS_API_KEY);
+  if(!apiKey){
+    document.getElementById('apiKeyInput').value = '';
+    pickerConfigOverlay.classList.add('open');
+    return;
+  }
+  openDrivePicker(apiKey);
+});
+
+document.getElementById('cancelPickerConfig').addEventListener('click', () => pickerConfigOverlay.classList.remove('open'));
+document.getElementById('savePickerConfig').addEventListener('click', () => {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  const err = document.getElementById('pickerConfigError');
+  if(!key.startsWith('AIza')){ err.textContent = 'API Key ไม่ถูกต้อง (ควรขึ้นต้นด้วย AIza)'; return; }
+  err.textContent = '';
+  localStorage.setItem(LS_API_KEY, key);
+  pickerConfigOverlay.classList.remove('open');
+  openDrivePicker(key);
+});
+
+function ensurePickerLoaded(cb){
+  if(pickerLoaded){ cb(); return; }
+  gapi.load('picker', () => { pickerLoaded = true; cb(); });
+}
+
+function openDrivePicker(apiKey){
+  if(!accessToken){ toast('กรุณาเชื่อมต่อ Google Drive ก่อน'); return; }
+  if(typeof gapi === 'undefined'){ toast('โหลด Google API ไม่สำเร็จ ลองรีเฟรชหน้า'); return; }
+  ensurePickerLoaded(() => {
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setMimeTypes('text/csv,text/plain,application/vnd.google-apps.spreadsheet')
+      .setSelectFolderEnabled(false);
+    const picker = new google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey)
+      .setCallback(onPickerResult)
+      .build();
+    picker.setVisible(true);
+  });
+}
+
+async function onPickerResult(result){
+  if(result.action !== google.picker.Action.PICKED) return;
+  const file = result.docs[0];
+  toast('กำลังอ่านไฟล์...');
+  try{
+    let csvText;
+    if(file.mimeType === 'application/vnd.google-apps.spreadsheet'){
+      // Google Sheets — export the first sheet as CSV
+      const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/csv`);
+      csvText = await res.text();
+    } else {
+      const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
+      csvText = await res.text();
+    }
+    const rows = parseCsv(csvText);
+    if(rows.length === 0){ toast('ไม่พบข้อมูลในไฟล์นี้'); return; }
+    showCsvPreview(rows, file.name);
+  }catch(e){
+    console.error(e);
+    toast('อ่านไฟล์จาก Drive ไม่สำเร็จ');
+  }
+}
+
+/* Minimal CSV parser (handles quoted fields and commas inside quotes) */
+function parseCsvLine(line){
+  const out = [];
+  let cur = '', inQuotes = false;
+  for(let i=0;i<line.length;i++){
+    const c = line[i];
+    if(inQuotes){
+      if(c === '"' && line[i+1] === '"'){ cur += '"'; i++; }
+      else if(c === '"'){ inQuotes = false; }
+      else{ cur += c; }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ out.push(cur); cur=''; }
+      else{ cur += c; }
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseCsv(text){
+  const lines = text.split(/\r\n|\n/).filter(l => l.trim().length > 0);
+  if(lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+
+  // Auto-detect common column names across Chrome, Bitwarden, 1Password style exports
+  const findCol = (...names) => headers.findIndex(h => names.includes(h));
+  const siteIdx = findCol('name','title','site','account');
+  const urlIdx = findCol('url','login_uri','uri','website');
+  const userIdx = findCol('username','login_username','user','email');
+  const passIdx = findCol('password','login_password','pass');
+  const noteIdx = findCol('note','notes','extension');
+
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const cols = parseCsvLine(lines[i]);
+    const site = siteIdx >= 0 ? cols[siteIdx] : (urlIdx >= 0 ? cols[urlIdx] : '');
+    const user = userIdx >= 0 ? cols[userIdx] : '';
+    const pass = passIdx >= 0 ? cols[passIdx] : '';
+    const url = urlIdx >= 0 ? cols[urlIdx] : '';
+    const note = noteIdx >= 0 ? cols[noteIdx] : '';
+    if(!site && !user && !pass) continue;
+    rows.push({
+      site: (site || url || 'ไม่ระบุชื่อ').trim(),
+      user: (user || '').trim(),
+      pass: (pass || '').trim(),
+      note: [url && url !== site ? url : '', note].filter(Boolean).join(' — ').trim()
+    });
+  }
+  return rows;
+}
+
+function renderCsvPreview(filename){
+  document.getElementById('csvPreviewSummary').textContent = pendingCsvRows.length > 0
+    ? `พบ ${pendingCsvRows.length} รายการในไฟล์ "${filename}" ตรวจสอบก่อนนำเข้า (จะเพิ่มต่อจากรายการที่มีอยู่ ไม่เขียนทับ) — กด × เพื่อไม่นำเข้ารายการนั้น`
+    : 'ไม่มีรายการเหลือให้นำเข้าแล้ว';
+  const table = document.getElementById('csvPreviewTable');
+  table.innerHTML = pendingCsvRows.map((r, i) => `
+    <div class="entry" style="cursor:default;">
+      <div class="entry-main">
+        <div class="entry-site">${escapeHtml(r.site)}</div>
+        <div class="entry-user">${escapeHtml(r.user)}${r.pass ? ' · ••••••••' : ''}</div>
+      </div>
+      <button class="btn-danger btn-small csv-row-delete" data-idx="${i}" title="ไม่นำเข้ารายการนี้">×</button>
+    </div>`).join('');
+  table.querySelectorAll('.csv-row-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingCsvRows.splice(parseInt(btn.dataset.idx), 1);
+      renderCsvPreview(filename);
+    });
+  });
+  document.getElementById('confirmCsvImport').textContent = `นำเข้า (${pendingCsvRows.length})`;
+}
+
+function showCsvPreview(rows, filename){
+  pendingCsvRows = rows;
+  renderCsvPreview(filename);
+  document.getElementById('csvPreviewOverlay').classList.add('open');
+}
+
+document.getElementById('cancelCsvImport').addEventListener('click', () => {
+  pendingCsvRows = null;
+  document.getElementById('csvPreviewOverlay').classList.remove('open');
+});
+
+document.getElementById('confirmCsvImport').addEventListener('click', async () => {
+  if(!pendingCsvRows || pendingCsvRows.length === 0){ toast('ไม่มีรายการให้นำเข้า'); return; }
+  const now = Date.now();
+  pendingCsvRows.forEach(r => vaultData.push({ ...r, updatedAt: now }));
+  const count = pendingCsvRows.length;
+  pendingCsvRows = null;
+  document.getElementById('csvPreviewOverlay').classList.remove('open');
+  renderList();
+  await persist();
+  toast(`นำเข้า ${count} รายการแล้ว`);
+});
+
+
 const driveConfigOverlay = document.getElementById('driveConfigOverlay');
 const driveDot = document.getElementById('driveDot');
 const driveStatusText = document.getElementById('driveStatusText');
@@ -693,33 +996,41 @@ async function uploadToDrive(blob){
 async function syncFromDrive(){
   try{
     const fileId = await findDriveFile();
+    const localRecord = loadLocalBlob(); // { iv, data, modifiedAt }
+
     if(!fileId){
       // no remote file yet — push current local vault
-      const blob = await encryptData(vaultKey, vaultData);
-      await uploadToDrive(blob);
+      await persist();
       toast('อัปโหลด vault ขึ้น Google Drive แล้ว');
       return;
     }
+
     const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
     const payload = await res.json();
-    // Only pull remote if it looks newer / different — simplest approach: ask user
-    if(confirm('พบ vault บน Google Drive ต้องการดึงข้อมูลจาก Drive มาแทนที่ในเครื่องนี้หรือไม่?\n(กด "ยกเลิก" เพื่ออัปโหลดข้อมูลในเครื่องนี้ขึ้น Drive แทน)')){
-      const salt = new Uint8Array(b64decode(payload.salt));
-      // Re-derive isn't needed since vaultKey already unlocked this session's local vault,
-      // but remote may use a different salt if created elsewhere — try decrypting with current key first.
+    const remoteModified = payload.modifiedAt || 0;
+    const localModified = localRecord?.modifiedAt || 0;
+
+    if(remoteModified > localModified){
+      // Remote is newer — pull it in automatically
       try{
         const data = await decryptData(vaultKey, { iv: payload.iv, data: payload.data });
         vaultData = data;
         renderList();
-        saveLocalBlob({ iv: payload.iv, data: payload.data });
-        toast('ดึงข้อมูลจาก Google Drive แล้ว');
+        saveLocalBlob({ iv: payload.iv, data: payload.data, modifiedAt: remoteModified });
+        toast('ดึงข้อมูลล่าสุดจาก Google Drive แล้ว');
       }catch(e){
-        toast('ถอดรหัสข้อมูลบน Drive ไม่สำเร็จ (master password อาจไม่ตรงกับไฟล์บน Drive นี้)');
+        // Different master password used on the Drive copy — ask instead of silently failing
+        if(confirm('ข้อมูลบน Google Drive ถอดรหัสด้วย master password นี้ไม่ได้ (อาจถูกสร้างด้วย master password อื่น)\nต้องการเขียนทับข้อมูลบน Drive ด้วยข้อมูลในเครื่องนี้แทนหรือไม่?')){
+          await persist();
+          toast('เขียนทับ Drive ด้วยข้อมูลในเครื่องนี้แล้ว');
+        }
       }
+    } else if(localModified > remoteModified){
+      // Local is newer — push it up automatically
+      await uploadToDrive(localRecord);
+      toast('อัปโหลดข้อมูลในเครื่องขึ้น Google Drive แล้ว (ใหม่กว่าบน Drive)');
     } else {
-      const blob = await encryptData(vaultKey, vaultData);
-      await uploadToDrive(blob);
-      toast('อัปโหลด vault ในเครื่องขึ้น Google Drive แล้ว');
+      toast('ข้อมูลตรงกับ Google Drive อยู่แล้ว');
     }
   }catch(e){
     console.error(e);
