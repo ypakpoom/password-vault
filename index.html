@@ -142,74 +142,11 @@
   .strength-wrap.ok .strength-label{ color: var(--brass); }
   .strength-wrap.strong .strength-label{ color: var(--ok); }
 
-  /* ---------- Auto-lock select & countdown ---------- */
-  .auto-lock-wrap{
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+  /* ---------- Auto-lock select ---------- */
   select#autoLockSelect{
     background: var(--bg); border:1px solid var(--line); color: var(--muted);
     font-family:'Inter',sans-serif; font-size:12px; padding: 5px 8px; border-radius: var(--radius);
     cursor:pointer;
-  }
-  .countdown-display{
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    padding: 5px 10px;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    min-width: 90px;
-    transition: all 0.2s;
-  }
-  .countdown-display.warning{
-    color: var(--brass);
-    border-color: var(--brass-dim);
-  }
-  .countdown-display.critical{
-    color: var(--danger);
-    border-color: var(--danger);
-    animation: pulse 1s infinite;
-  }
-  @keyframes pulse{
-    0%, 100%{ opacity: 1; }
-    50%{ opacity: 0.6; }
-  }
-  .countdown-icon{
-    font-size: 12px;
-  }
-  .countdown-progress{
-    position: relative;
-    width: 20px;
-    height: 20px;
-  }
-  .countdown-progress svg{
-    transform: rotate(-90deg);
-    width: 20px;
-    height: 20px;
-  }
-  .countdown-progress .bg{
-    fill: none;
-    stroke: var(--line);
-    stroke-width: 2;
-  }
-  .countdown-progress .fg{
-    fill: none;
-    stroke: var(--brass);
-    stroke-width: 2;
-    stroke-linecap: round;
-    transition: stroke-dashoffset 1s linear, stroke 0.3s;
-  }
-  .countdown-display.warning .countdown-progress .fg{
-    stroke: var(--brass);
-  }
-  .countdown-display.critical .countdown-progress .fg{
-    stroke: var(--danger);
   }
   #idleOverlay .modal{ text-align:center; max-width:340px; }
 </style>
@@ -270,29 +207,15 @@
     </div>
     <div class="header-actions">
       <span class="status-pill" id="driveStatus"><span class="status-dot" id="driveDot"></span><span id="driveStatusText">ไม่ได้เชื่อม Google Drive</span></span>
-      
-      <!-- Auto-lock with countdown -->
-      <div class="auto-lock-wrap">
-        <select id="autoLockSelect" title="ล็อกอัตโนมัติเมื่อไม่ใช้งาน">
-          <option value="60000">ล็อกใน 1 นาที</option>
-          <option value="300000" selected>ล็อกใน 5 นาที</option>
-          <option value="900000">ล็อกใน 15 นาที</option>
-          <option value="0">ไม่ล็อกอัตโนมัติ</option>
-        </select>
-        <div class="countdown-display" id="countdownDisplay" style="display:none;">
-          <div class="countdown-progress">
-            <svg viewBox="0 0 20 20">
-              <circle class="bg" cx="10" cy="10" r="8"/>
-              <circle class="fg" id="countdownCircle" cx="10" cy="10" r="8" stroke-dasharray="50.265" stroke-dashoffset="0"/>
-            </svg>
-          </div>
-          <span id="countdownText">00:00</span>
-        </div>
-      </div>
-      
+      <select id="autoLockSelect" title="ล็อกอัตโนมัติเมื่อไม่ใช้งาน">
+        <option value="60000">ล็อกใน 1 นาที</option>
+        <option value="300000" selected>ล็อกใน 5 นาที</option>
+        <option value="900000">ล็อกใน 15 นาที</option>
+        <option value="0">ไม่ล็อกอัตโนมัติ</option>
+      </select>
       <button class="btn-ghost btn-small" id="driveBtn">เชื่อม Google Drive</button>
-      <button class="btn-ghost btn-small" id="exportBtn">Export</button>
-      <button class="btn-ghost btn-small" id="importBtn">Import</button>
+      <button class="btn-ghost btn-small" id="exportBtn">Export CSV</button>
+      <button class="btn-ghost btn-small" id="importBtn">Import CSV</button>
       <button class="btn-ghost btn-small" id="importDriveBtn">Import จาก Drive</button>
       <button class="btn-ghost btn-small" id="lockBtn">Lock</button>
     </div>
@@ -566,109 +489,31 @@ function lockNow(){
   vaultKey = null;
   vaultData = [];
   accessToken = null;
-  stopCountdown();
   location.reload();
 }
 
-/* ---------------- Auto-lock on inactivity with Countdown ---------------- */
+/* ---------------- Auto-lock on inactivity ---------------- */
 const LS_AUTOLOCK = 'vault_autolock_ms';
 let idleTimer = null;
-let countdownInterval = null;
-let countdownEndTime = 0;
-let totalCountdownMs = 0;
-
-const countdownDisplay = document.getElementById('countdownDisplay');
-const countdownText = document.getElementById('countdownText');
-const countdownCircle = document.getElementById('countdownCircle');
-const circumference = 2 * Math.PI * 8; // r=8, circumference = 50.265
 
 function getAutoLockMs(){
   const saved = localStorage.getItem(LS_AUTOLOCK);
   return saved !== null ? parseInt(saved) : 300000; // default 5 min
 }
 
-function formatTime(ms){
-  const totalSec = Math.max(0, Math.ceil(ms / 1000));
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-}
-
-function updateCountdownDisplay(){
-  const remaining = countdownEndTime - Date.now();
-  
-  if(remaining <= 0){
-    stopCountdown();
-    toast('ล็อกอัตโนมัติเนื่องจากไม่มีการใช้งาน');
-    setTimeout(lockNow, 600);
-    return;
-  }
-  
-  // Update text
-  countdownText.textContent = formatTime(remaining);
-  
-  // Update circular progress
-  const progress = remaining / totalCountdownMs;
-  const offset = circumference * (1 - progress);
-  countdownCircle.style.strokeDashoffset = offset;
-  
-  // Update warning/critical states
-  countdownDisplay.classList.remove('warning', 'critical');
-  if(remaining <= 10000){ // 10 seconds
-    countdownDisplay.classList.add('critical');
-  } else if(remaining <= 30000){ // 30 seconds
-    countdownDisplay.classList.add('warning');
-  }
-}
-
-function startCountdown(ms){
-  totalCountdownMs = ms;
-  countdownEndTime = Date.now() + ms;
-  
-  // Show countdown display
-  countdownDisplay.style.display = 'flex';
-  
-  // Initialize circle
-  countdownCircle.style.strokeDasharray = circumference;
-  countdownCircle.style.strokeDashoffset = 0;
-  
-  // Update immediately
-  updateCountdownDisplay();
-  
-  // Start interval
-  if(countdownInterval) clearInterval(countdownInterval);
-  countdownInterval = setInterval(updateCountdownDisplay, 1000);
-}
-
-function stopCountdown(){
-  if(countdownInterval){
-    clearInterval(countdownInterval);
-    countdownInterval = null;
-  }
-  countdownDisplay.style.display = 'none';
-  countdownDisplay.classList.remove('warning', 'critical');
-}
-
 function resetIdleTimer(){
-  // Clear existing timers
   if(idleTimer) clearTimeout(idleTimer);
-  if(countdownInterval) clearInterval(countdownInterval);
-  
   const ms = getAutoLockMs();
-  
   if(ms > 0){
-    // Start countdown
-    startCountdown(ms);
-  } else {
-    // No auto-lock
-    stopCountdown();
+    idleTimer = setTimeout(() => {
+      toast('ล็อกอัตโนมัติเนื่องจากไม่มีการใช้งาน');
+      setTimeout(lockNow, 600);
+    }, ms);
   }
 }
 
 ['mousemove','mousedown','keydown','scroll','touchstart'].forEach(evt => {
-  document.addEventListener(evt, () => { 
-    if(vaultKey) resetIdleTimer(); 
-  }, { passive:true });
+  document.addEventListener(evt, () => { if(vaultKey) resetIdleTimer(); }, { passive:true });
 });
 
 const autoLockSelect = document.getElementById('autoLockSelect');
@@ -690,7 +535,7 @@ function renderList(){
     .sort((a,b) => a.site.localeCompare(b.site));
 
   if(filtered.length === 0){
-    listContainer.innerHTML = `<div class="empty-state"><h3>${vaultData.length===0 ? 'ยังไม่มีรายการ' : 'ไม่พบผลลัพธ์'}</h3><p>${vaultData.length===0 ? 'กด "+ เพิ่มรายการ" เพื่อบันทึกรหัสผ่านแรก' : 'ลองค้นหาด้วยคำอื่น'}</p></div>`;
+    listContainer.innerHTML = `<div class="empty-state"><h3>${vaultData.length===0 ? 'ยังไม่มีรายการ' : 'ไม่พบผลลัพธ์'}</h3><p>${vaultData.length===0 ? 'กด "+ เพิ่มรายการ" หรือ "Import CSV" เพื่อเพิ่มรหัสผ่าน' : 'ลองค้นหาด้วยคำอื่น'}</p></div>`;
     return;
   }
   listContainer.innerHTML = `<div class="entry-list">${filtered.map((e,i) => `
@@ -835,40 +680,64 @@ document.getElementById('copyPassBtn').addEventListener('click', () => {
   setTimeout(() => { document.getElementById('viewPass').type = 'password'; }, 8000);
 });
 
-/* ---------------- Export / Import ---------------- */
-document.getElementById('exportBtn').addEventListener('click', async () => {
-  const blob = await encryptData(vaultKey, vaultData);
-  const payload = { salt: loadSalt(), ...blob, exportedAt: new Date().toISOString() };
-  const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(file);
+/* ---------------- Export / Import CSV ---------------- */
+function escapeCsvCell(val){
+  if(val === null || val === undefined) val = '';
+  val = String(val);
+  if(val.includes('"') || val.includes(',') || val.includes('\n') || val.includes('\r')){
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+}
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const headers = ['title', 'user', 'pass', 'note'];
+  let csvContent = '\uFEFF'; // UTF-8 BOM for Thai language / Excel support
+  csvContent += headers.join(',') + '\n';
+
+  if(vaultData.length === 0){
+    // Sample template row when empty
+    csvContent += [escapeCsvCell('example.com'), escapeCsvCell('myusername'), escapeCsvCell('mypassword123'), escapeCsvCell('หมายเหตุตัวอย่าง')].join(',') + '\n';
+  } else {
+    vaultData.forEach(e => {
+      const row = [
+        escapeCsvCell(e.site || ''),
+        escapeCsvCell(e.user || ''),
+        escapeCsvCell(e.pass || ''),
+        escapeCsvCell(e.note || '')
+      ];
+      csvContent += row.join(',') + '\n';
+    });
+  }
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'vault-backup.enc.json';
+  a.href = url;
+  a.download = 'vault-passwords.csv';
   a.click();
   URL.revokeObjectURL(url);
-  toast('ดาวน์โหลดไฟล์สำรอง (เข้ารหัสแล้ว) แล้ว');
+  toast('ดาวน์โหลดไฟล์ CSV สำหรับกรอกข้อมูลแล้ว');
 });
 
 document.getElementById('importBtn').addEventListener('click', () => {
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.json';
+  inp.type = 'file';
+  inp.accept = '.csv,text/csv';
   inp.addEventListener('change', async () => {
     const file = inp.files[0];
     if(!file) return;
     try{
       const text = await file.text();
-      const payload = JSON.parse(text);
-      const pw = prompt('ใส่ master password ของไฟล์สำรองนี้เพื่อนำเข้า:');
-      if(!pw) return;
-      const salt = new Uint8Array(b64decode(payload.salt));
-      const key = await deriveKey(pw, salt);
-      const data = await decryptData(key, { iv: payload.iv, data: payload.data });
-      if(!confirm(`พบ ${data.length} รายการในไฟล์สำรอง ต้องการแทนที่ vault ปัจจุบันหรือไม่?`)) return;
-      vaultData = data;
-      renderList();
-      await persist();
-      toast('นำเข้าสำเร็จ');
+      const rows = parseCsv(text);
+      if(rows.length === 0){
+        toast('ไม่พบข้อมูลในไฟล์ CSV นี้ หรือรูปแบบไม่ถูกต้อง');
+        return;
+      }
+      showCsvPreview(rows, file.name);
     }catch(e){
-      toast('นำเข้าไม่สำเร็จ: ไฟล์หรือ master password ไม่ถูกต้อง');
+      console.error(e);
+      toast('นำเข้าไม่สำเร็จ: อ่านไฟล์ CSV ไม่ได้');
     }
   });
   inp.click();
@@ -970,15 +839,15 @@ function parseCsvLine(line){
 function parseCsv(text){
   const lines = text.split(/\r\n|\n/).filter(l => l.trim().length > 0);
   if(lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^\uFEFF/, ''));
 
-  // Auto-detect common column names across Chrome, Bitwarden, 1Password style exports
+  // Auto-detect common column names including title, site, user, pass, note
   const findCol = (...names) => headers.findIndex(h => names.includes(h));
-  const siteIdx = findCol('name','title','site','account');
-  const urlIdx = findCol('url','login_uri','uri','website');
-  const userIdx = findCol('username','login_username','user','email');
-  const passIdx = findCol('password','login_password','pass');
-  const noteIdx = findCol('note','notes','extension');
+  const siteIdx = findCol('title','site','name','account','website');
+  const urlIdx = findCol('url','login_uri','uri');
+  const userIdx = findCol('user','username','login_username','email');
+  const passIdx = findCol('pass','password','login_password');
+  const noteIdx = findCol('note','notes','extension','remark');
 
   const rows = [];
   for(let i=1;i<lines.length;i++){
@@ -1189,7 +1058,7 @@ async function syncFromDrive(){
     }
   }catch(e){
     console.error(e);
-    toast('ซิงก์ไม่สำเร็จโวย');
+    toast('ซิงก์ไม่สำเร็จ');
   }
 }
 </script>
